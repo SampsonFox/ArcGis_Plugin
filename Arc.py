@@ -2,14 +2,20 @@ import arcpy
 import os
 from arcpy.sa import *
 import json
-import sys
 import shutil
+from Settings import Settings
+from Reset import reset
+import time
 
+t = time.time()
+reset()
 # setting the paths
-arcpy.env.workspace = "C:/Users/Sampson/Desktop/Fire_data.gdb"
-fc = "C:/Users/Sampson/Desktop/Fire_data.gdb/fire_history_scar_Python"
-output = "D:/output"
-log_path = "D:/output/save_log.json"
+Settings = Settings()
+arcpy.env.workspace = Settings.output
+fc = Settings.fc
+output = Settings.output
+log_path = Settings.log_path
+result_path = Settings.result_path
 
 # set the environment extent
 arcpy.env.extent = arcpy.Extent(140.428953, -39.136649, 150.033447, -34.056565)
@@ -33,29 +39,35 @@ cursor = arcpy.SearchCursor(fc, fields)
 # Put the base raster image into a variation
 fire = Raster('D:/output/Raster/Fire0')
 
+if len(os.listdir(os.path.join(output, 'Results'))) and save_time != 1:
+    fire = Raster(os.path.join(output, 'Results', 'Result' + str(save_time-1)))
+
 # iterates through the cursor list
 for row in cursor:
 
     fid = str(count)
 
-    print ('objectid: {0},count: {1}'.format(fid, row.count))
+    print ('objectid: {0},count: {1}, loop time: {2}'.format(fid, row.count, loop_time))
 
     # set the name of the isolated vector layers
     filename_vector = str("Fire" + str(count) + '.shp')
 
+    os.mkdir(os.path.join(output, 'Vector', "Fire" + str(count)))
+
     # the Feature Class To Feature Class tool will isolate every item within the main fire layer
-    arcpy.FeatureClassToFeatureClass_conversion('fire_history_scar_Python',
-                                                os.path.join(output, 'Vector'),
+    arcpy.FeatureClassToFeatureClass_conversion(fc,
+                                                os.path.join(output, 'Vector', "Fire" + str(count)),
                                                 filename_vector,
-                                                '"objectid" = {}'.format(fid))
+                                                '"objectid" = {0}'.format(fid))
 
     # set the manes for converted raster file
     filename_raster = str("Fire" + str(count))
 
     # covert every isolated polygon into raster layer
-    arcpy.PolygonToRaster_conversion(os.path.join(output, 'Vector', filename_vector),
+    arcpy.PolygonToRaster_conversion(os.path.join(output, 'Vector', "Fire" + str(count), filename_vector),
                                     'count', os.path.join(output, 'Raster', filename_raster)
                                     , 'CELL_CENTER', 'count', 0.001)
+
     temp_raster = Raster(os.path.join(output, 'Raster', filename_raster))
 
     # set names for calculated vector layer
@@ -63,39 +75,74 @@ for row in cursor:
 
     # use the RasterCalculator to covert the Null pixel to 0
     arcpy.gp.RasterCalculator('Con(IsNull("{0}"),0,"{0}")'.format(temp_raster),
-                              os.path.join(output, 'Raster', filename_raster_0),)
+                              os.path.join(output, 'Raster', filename_raster_0))
 
     current_raster = Raster(os.path.join(output, 'Raster', filename_raster_0))
+    #fire.append(current_raster)
 
-    if count != 1:
+    if loop_time > 50:
+        # remove extra vector layer
+        #os.remove(os.path.join(output, 'Vector', "Fire" + str(count - 20) + '.cpg'))
+        #os.remove(os.path.join(output, 'Vector', "Fire" + str(count - 20) + '.dbf'))
+        #os.remove(os.path.join(output, 'Vector', "Fire" + str(count - 20) + '.prj'))
+        #os.remove(os.path.join(output, 'Vector', "Fire" + str(count - 20) + '.sbn'))
+        #os.remove(os.path.join(output, 'Vector', "Fire" + str(count - 20) + '.sbx'))
+        #os.remove(os.path.join(output, 'Vector', "Fire" + str(count - 20) + '.shp'))
+        #os.remove(os.path.join(output, 'Vector', "Fire" + str(count - 20) + '.shx'))
+        if os.path.exists(os.path.join(output, 'Vector', "Fire" + str(count - 20))):
+            shutil.rmtree(os.path.join(output, 'Vector', "Fire" + str(count - 20)))
+
+        # remove extra raster layer
+        shutil.rmtree(os.path.join(output, 'Raster', "Fire" + str(count - 20)))
+        shutil.rmtree(os.path.join(output, 'Raster', "Fire" + str(count - 20) + '_0'))
+        os.remove(os.path.join(output, 'Raster', "Fire" + str(count - 20) + '.ovr'))
+
+        if os.path.exists(os.path.join(output, 'Raster', "Fire" + str(count - 20) + '.aux.xml')):
+            os.remove(os.path.join(output, 'Raster', "Fire" + str(count - 20) + '.aux.xml'))
+
+        if os.path.exists(os.path.join(output, 'Raster', "Fire" + str(count - 20) + '_0.aux.xml')):
+            os.remove(os.path.join(output, 'Raster', "Fire" + str(count - 20) + '_0.aux.xml'))
+
+    #if loop_time == 1:
+        #fire = Raster(os.path.join('D:/output/Results', 'Result' + str(save_time)))
+
+    if loop_time != 1:
 
         # Use the raster calculator to calculate the new raster layer and accumulation layer
         fire = Plus(current_raster, fire)
 
         # Save the result every 10 steps
         if not loop_time % 10:
-            fire.save(os.path.join('D:/output/Results', 'Result' + str(save_time)))
-            print ('Saved! Result' + str(save_time))
-            # we can also delete all wasted result using following codes
 
-            # hutil.rmtree('D:/output/Results/result' + str(save_time - 1))
-            # os.remove('D:/output/Results/Result' + str(save_time - 1) + '.aux.xml')
+            # raster = Plus(fire[0], fire[1], fire[2], fire[3], fire[4], fire[5], fire[6], fire[7], fire[8], fire[9])
+            fire.save(os.path.join(result_path, 'Result' + str(save_time)))
+            print ('Saved! Result' + str(save_time) + ' ' + str(t))
+
+            if loop_time > 110:
+                # delete extra result
+                os.remove(os.path.join(output, 'Raster', "Fire" + str(count - 10) + '_0.aux.xml'))
+                print ('Removed! ' + str(save_time - 10))
+
             save_time += 1
+            # fire = [Raster('D:/output/Raster/Fire0')]
+            with open(log_path, 'w') as saving:
+                save = [count, save_time]
+                json.dump(save, saving)
+
+
 
     # count = 1 means this script is running under the first time, so the raster1_0 will become the new base map
-    else:
+    elif count == 1:
         fire = current_raster
 
     # open the log file and save current situation
-    with open(log_path,'w') as saving:
-        save = [count, save_time]
-        json.dump(save, saving)
+
 
     count += 1
     loop_time += 1
 
     # the limitation of how many times this script will run in each round
-    if loop_time == 11:
+    if loop_time == 2000:
         break
 
 end_ID = count
